@@ -3,11 +3,13 @@ services:
     name: ddm-backend
     env: python
     plan: free
-    rootDir: backend
+    rootDir: deadhead-minimizer/backend
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
       - key: DATABASE_URL
         fromDatabase:
           name: ddm-postgres
@@ -16,6 +18,24 @@ services:
         value: http://localhost:3000
       # Add DAT_API_KEY, TWILIO_*, OPENAI_API_KEY here later if/when those
       # features get built — leave unset for now, they default to empty.
+
+  - type: web
+    name: ddm-frontend
+    env: node
+    plan: free
+    rootDir: deadhead-minimizer/frontend
+    buildCommand: npm install && npm run build
+    startCommand: npm run start -- -p $PORT
+    envVars:
+      # Render service URLs are predictable: https://<name>.onrender.com
+      # If "ddm-backend" was already taken and Render appended a suffix,
+      # update this to the real URL shown in the backend service's dashboard,
+      # then manually redeploy this frontend service (Next.js bakes
+      # NEXT_PUBLIC_* values in at build time, so a plain restart isn't enough).
+      - key: NEXT_PUBLIC_API_URL
+        value: https://ddm-backend.onrender.com
+      - key: NEXT_PUBLIC_MAPBOX_TOKEN
+        sync: false   # Render will prompt you to paste this in when applying the blueprint
 
 databases:
   - name: ddm-postgres

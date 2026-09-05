@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Update Market Data — Dynamic Deadhead Minimizer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#1B1D21; --paper:#FAFAF7; --line:#DDD8C8; --muted:#7A7568;
+    --signal:#C8862A; --signal-bg:#FBF0DE; --good:#2E7D4F; --bad:#B23A2E;
+  }
+  *{ box-sizing:border-box; }
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:'IBM Plex Sans', sans-serif;
+  }
+  .mono{ font-family:'IBM Plex Mono', monospace; }
+  header{
+    padding:22px 24px; border-bottom:1px solid var(--line);
+    display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;
+  }
+  h1{ font-size:19px; margin:0; }
+  .sub{ font-size:13px; color:var(--muted); margin-top:3px; }
+
+  .config{
+    display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+  }
+  .config label{ font-size:12.5px; color:var(--muted); }
+  .config input{
+    font-family:'IBM Plex Mono', monospace; font-size:12.5px;
+    padding:7px 9px; border:1px solid var(--line); border-radius:5px; width:220px;
+  }
+
+  main{ max-width:920px; margin:0 auto; padding:26px 24px 60px; }
+
+  .toolbar{ display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; flex-wrap:wrap; gap:10px;}
+  .toolbar h2{ font-size:15px; margin:0; }
+  .toolbar .hint{ font-size:13px; color:var(--muted); }
+
+  table{ width:100%; border-collapse:collapse; background:#fff; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  thead th{
+    text-align:left; font-size:11.5px; text-transform:uppercase; letter-spacing:0.04em; color:var(--muted);
+    padding:10px 12px; border-bottom:1px solid var(--line); background:#F4F1E8;
+  }
+  tbody td{ padding:8px 12px; border-bottom:1px solid var(--line); font-size:14px; }
+  tbody tr:last-child td{ border-bottom:none; }
+  input[type="number"], select{
+    width:100%; padding:8px 9px; border:1px solid var(--line); border-radius:5px;
+    font-family:'IBM Plex Mono', monospace; font-size:13.5px; background:#fff;
+  }
+  input:focus, select:focus{ outline:2px solid var(--signal); outline-offset:1px; }
+  .ratio-preview{ font-family:'IBM Plex Mono', monospace; font-size:13px; font-weight:600; }
+  .remove-btn{
+    border:none; background:transparent; color:var(--bad); cursor:pointer; font-size:13px;
+  }
+
+  .add-row{
+    margin-top:12px; padding:10px 14px; border:1px dashed var(--line); border-radius:6px;
+    background:transparent; color:var(--muted); font-size:13.5px; cursor:pointer; width:100%; text-align:left;
+  }
+  .add-row:hover{ background:#F4F1E8; }
+
+  .submit-bar{
+    margin-top:22px; display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+  }
+  .submit-btn{
+    background:var(--signal); color:#fff; border:none; padding:12px 22px; border-radius:6px;
+    font-size:14.5px; font-weight:600; cursor:pointer;
+  }
+  .submit-btn:hover{ filter:brightness(0.95); }
+  .submit-btn:disabled{ opacity:0.5; cursor:not-allowed; }
+
+  .status{ font-size:13.5px; }
+  .status.ok{ color:var(--good); }
+  .status.err{ color:var(--bad); }
+
+  .result-list{ margin-top:18px; display:flex; flex-direction:column; gap:6px; }
+  .result-item{
+    display:flex; justify-content:space-between; padding:9px 12px; border:1px solid var(--line);
+    border-radius:5px; font-size:13.5px; background:#fff;
+  }
+  .zone-tag{ font-family:'IBM Plex Mono', monospace; font-size:11.5px; padding:2px 8px; border-radius:10px; }
+  .zone-hot{ background:#FBE1DC; color:#8B0000; }
+  .zone-balanced{ background:#FEE7D4; color:#B5540C; }
+  .zone-soft{ background:#DCEBFB; color:#1D5FA8; }
+  .zone-dead{ background:#EAEAE7; color:#5B5B57; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Update market data</h1>
+    <div class="sub">Enter today's board counts for the markets you're tracking. Takes about two minutes.</div>
+  </div>
+  <div class="config">
+    <label for="apiBase">Server address</label>
+    <input type="text" id="apiBase" value="http://localhost:8000" />
+  </div>
+</header>
+
+<main>
+  <div class="toolbar">
+    <h2>Markets</h2>
+    <span class="hint">Load count and truck count come straight off the board — the ratio fills in on its own.</span>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width:22%">Market</th>
+        <th style="width:14%">Equipment</th>
+        <th style="width:16%">Loads posted</th>
+        <th style="width:16%">Trucks available</th>
+        <th style="width:14%">Avg rate ($/mi)</th>
+        <th style="width:12%">Ratio</th>
+        <th style="width:6%"></th>
+      </tr>
+    </thead>
+    <tbody id="marketRows"></tbody>
+  </table>
+
+  <button class="add-row" id="addRowBtn">+ Add another market</button>
+
+  <div class="submit-bar">
+    <button class="submit-btn" id="submitBtn">Save update</button>
+    <span class="status" id="statusMsg"></span>
+  </div>
+
+  <div class="result-list" id="resultList"></div>
+</main>
+
+<script>
+  const EQUIPMENT_OPTIONS = ["van", "reefer", "flatbed", "stepdeck", "power_only"];
+
+  // Starter markets — edit this list to match a pilot company's real lanes,
+  // or just add rows manually in the UI before the first save.
+  const STARTER_MARKETS = [
+    { code: "ATL", name: "Atlanta, GA" },
+    { code: "CHA", name: "Chattanooga, TN" },
+    { code: "NSH", name: "Nashville, TN" },
+    { code: "CHI", name: "Chicago, IL" },
+    { code: "DAL", name: "Dallas, TX" },
+    { code: "MEM", name: "Memphis, TN" },
+  ];
+
+  const tbody = document.getElementById('marketRows');
+
+  function addRow(prefill = {}){
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>
+        <input type="text" class="mono kma-code" placeholder="e.g. ATL" value="${prefill.code || ''}" style="width:70px; padding:6px 7px; border:1px solid var(--line); border-radius:4px;" />
+        <div style="font-size:11.5px; color:var(--muted); margin-top:3px;">${prefill.name || 'Market name'}</div>
+      </td>
+      <td>
+        <select class="equip-select">
+          ${EQUIPMENT_OPTIONS.map(e => `<option value="${e}">${e}</option>`).join('')}
+        </select>
+      </td>
+      <td><input type="number" min="0" class="load-count" value="${prefill.loads ?? ''}" placeholder="0" /></td>
+      <td><input type="number" min="0" class="truck-count" value="${prefill.trucks ?? ''}" placeholder="0" /></td>
+      <td><input type="number" min="0" step="0.01" class="rpm-input" placeholder="e.g. 2.35" /></td>
+      <td class="ratio-preview">—</td>
+      <td><button class="remove-btn" title="Remove market">✕</button></td>
+    `;
+
+    const loadInput = tr.querySelector('.load-count');
+    const truckInput = tr.querySelector('.truck-count');
+    const ratioCell = tr.querySelector('.ratio-preview');
+    function updateRatio(){
+      const l = parseFloat(loadInput.value), t = parseFloat(truckInput.value);
+      if (!isNaN(l) && !isNaN(t) && t > 0) ratioCell.textContent = (l / t).toFixed(2) + 'x';
+      else ratioCell.textContent = '—';
+    }
+    loadInput.addEventListener('input', updateRatio);
+    truckInput.addEventListener('input', updateRatio);
+    tr.querySelector('.remove-btn').addEventListener('click', () => tr.remove());
+
+    tbody.appendChild(tr);
+  }
+
+  STARTER_MARKETS.forEach(m => addRow(m));
+  document.getElementById('addRowBtn').addEventListener('click', () => addRow());
+
+  document.getElementById('submitBtn').addEventListener('click', async () => {
+    const apiBase = document.getElementById('apiBase').value.replace(/\/$/, '');
+    const statusEl = document.getElementById('statusMsg');
+    const resultList = document.getElementById('resultList');
+    const submitBtn = document.getElementById('submitBtn');
+
+    const updates = [];
+    let hasError = false;
+
+    tbody.querySelectorAll('tr').forEach(tr => {
+      const code = tr.querySelector('.kma-code').value.trim().toUpperCase();
+      const equipment_type = tr.querySelector('.equip-select').value;
+      const load_count = parseInt(tr.querySelector('.load-count').value, 10);
+      const truck_count = parseInt(tr.querySelector('.truck-count').value, 10);
+      const rpmVal = tr.querySelector('.rpm-input').value;
+      const avg_outbound_rpm = rpmVal ? parseFloat(rpmVal) : null;
+
+      if (!code) return; // skip empty rows
+      if (isNaN(load_count) || isNaN(truck_count)) { hasError = true; return; }
+
+      updates.push({ kma_code: code, equipment_type, load_count, truck_count, avg_outbound_rpm });
+    });
+
+    if (hasError || updates.length === 0) {
+      statusEl.textContent = 'Enter loads and trucks for at least one market before saving.';
+      statusEl.className = 'status err';
+      return;
+    }
+
+    submitBtn.disabled = true;
+    statusEl.textContent = 'Saving…';
+    statusEl.className = 'status';
+
+    try {
+      const res = await fetch(`${apiBase}/api/v1/markets/manual-update`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ updates }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `Server returned ${res.status}`);
+      }
+
+      const results = await res.json();
+      statusEl.textContent = `Saved ${results.length} market${results.length === 1 ? '' : 's'}.`;
+      statusEl.className = 'status ok';
+
+      resultList.innerHTML = results.map(r => `
+        <div class="result-item">
+          <span>${r.kma_code} · ${r.equipment_type} · ratio ${r.load_to_truck_ratio.toFixed(2)}x</span>
+          <span class="zone-tag zone-${r.zone_classification}">${r.zone_classification}</span>
+        </div>
+      `).join('');
+    } catch (e) {
+      statusEl.textContent = 'Could not save: ' + e.message;
+      statusEl.className = 'status err';
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Apex Deadhead Command — Live Fleet Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --void:#090B0E;
+    --panel:#0F141B;
+    --panel-2:#141B24;
+    --line:#212A35;
+    --grid:rgba(34,211,238,0.08);
+    --cyan:#22D3EE;
+    --cyan-dim:#0E7490;
+    --signal:#FFC933;
+    --signal-dim:#8a7027;
+    --text:#E6EBF1;
+    --text-dim:#7C8896;
+    --zone-hot:#E53935;
+    --zone-bal:#FB923C;
+    --zone-soft:#60A5FA;
+    --zone-dead:#4B5563;
+    --gain:#34D399;
+  }
+  *{ box-sizing:border-box; }
+  body{
+    margin:0;
+    background:
+      radial-gradient(ellipse at 20% 0%, rgba(34,211,238,0.06), transparent 55%),
+      radial-gradient(ellipse at 100% 100%, rgba(255,201,51,0.05), transparent 55%),
+      var(--void);
+    color:var(--text);
+    font-family:'IBM Plex Sans', sans-serif;
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+  }
+  .mono{ font-family:'IBM Plex Mono', monospace; }
+  .hud{ font-family:'Rajdhani', sans-serif; font-weight:600; text-transform:uppercase; letter-spacing:0.05em; }
+  :focus-visible{ outline:2px solid var(--cyan); outline-offset:2px; }
+
+  /* ============ SHELL ============ */
+  .shell{ padding:18px 22px 26px; max-width:1520px; margin:0 auto; }
+
+  /* ============ HEADER ============ */
+  .topbar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding-bottom:16px; margin-bottom:16px;
+    border-bottom:1px solid var(--line);
+  }
+  .brand{ display:flex; align-items:center; gap:12px; }
+  .brand-mark{
+    width:34px; height:34px; border:2px solid var(--signal); border-radius:4px;
+    display:flex; align-items:center; justify-content:center;
+    color:var(--signal); font-family:'Rajdhani',sans-serif; font-weight:700; font-size:16px;
+    position:relative;
+  }
+  .brand-mark::after{
+    content:''; position:absolute; inset:-6px; border:1px solid var(--signal-dim); border-radius:6px; opacity:0.5;
+  }
+  .brand-title{ font-size:19px; letter-spacing:0.08em; }
+  .brand-sub{ font-size:11px; color:var(--text-dim); letter-spacing:0.12em; margin-top:2px; }
+
+  .topbar-right{ display:flex; align-items:center; gap:26px; }
+  .status-pill{
+    display:flex; align-items:center; gap:8px;
+    font-family:'IBM Plex Mono', monospace; font-size:12px; color:var(--gain);
+    border:1px solid rgba(52,211,153,0.3); background:rgba(52,211,153,0.08);
+    padding:6px 12px; border-radius:20px;
+  }
+  .pulse-dot{
+    width:7px; height:7px; border-radius:50%; background:var(--gain);
+    box-shadow:0 0 8px var(--gain);
+    animation:pulse 1.8s ease-in-out infinite;
+  }
+  @keyframes pulse{ 0%,100%{ opacity:1; transform:scale(1);} 50%{opacity:0.4; transform:scale(0.75);} }
+  .clock{ font-family:'IBM Plex Mono', monospace; font-size:13px; color:var(--text-dim); text-align:right; }
+  .clock strong{ color:var(--text); font-size:14px; display:block; }
+
+  /* ============ KPI ROW ============ */
+  .kpi-row{
+    display:grid; grid-template-columns:repeat(5, 1fr); gap:14px;
+    margin-bottom:16px;
+  }
+  @media (max-width:1100px){ .kpi-row{ grid-template-columns:repeat(2, 1fr); } }
+  .kpi{
+    background:var(--panel); border:1px solid var(--line); border-radius:8px;
+    padding:16px 18px; position:relative; overflow:hidden;
+  }
+  .kpi::before{
+    content:''; position:absolute; top:0; left:0; right:0; height:2px;
+    background:linear-gradient(90deg, var(--cyan), transparent);
+  }
+  .kpi-label{ font-size:11px; color:var(--text-dim); letter-spacing:0.08em; text-transform:uppercase; }
+  .kpi-value{ font-family:'IBM Plex Mono', monospace; font-size:26px; font-weight:600; margin-top:8px; color:var(--text); }
+  .kpi-value.up{ color:var(--gain); }
+  .kpi-value.warn{ color:var(--signal); }
+  .kpi-delta{ font-family:'IBM Plex Mono', monospace; font-size:11.5px; margin-top:6px; color:var(--text-dim); }
+  .kpi-delta.pos{ color:var(--gain); }
+  .kpi-delta.neg{ color:var(--zone-hot); }
+
+  /* ============ MAIN GRID ============ */
+  .main-grid{
+    display:grid; grid-template-columns:1.65fr 1fr; gap:16px;
+  }
+  @media (max-width:1100px){ .main-grid{ grid-template-columns:1fr; } }
+
+  .panel{
+    background:var(--panel); border:1px solid var(--line); border-radius:8px;
+    padding:16px 18px 18px; position:relative;
+  }
+  .panel-head{
+    display:flex; align-items:center; justify-content:space-between;
+    margin-bottom:12px;
+  }
+  .panel-title{ font-size:14px; letter-spacing:0.08em; color:var(--text); }
+  .panel-tag{
+    font-family:'IBM Plex Mono', monospace; font-size:10.5px; color:var(--cyan);
+    border:1px solid var(--cyan-dim); padding:2px 8px; border-radius:3px; letter-spacing:0.06em;
+  }
+
+  /* ============ MAP PANEL ============ */
+  .map-wrap{ position:relative; border-radius:6px; overflow:hidden; border:1px solid var(--line); background:#0B1017; }
+  .map-svg{ width:100%; height:auto; display:block; }
+  .grid-line{ stroke:var(--grid); stroke-width:1; }
+  .zone-node{ cursor:pointer; }
+  .zone-glow-hot{ filter:drop-shadow(0 0 6px rgba(229,57,53,0.85)); }
+  .zone-glow-bal{ filter:drop-shadow(0 0 5px rgba(251,146,60,0.7)); }
+  .zone-glow-soft{ filter:drop-shadow(0 0 4px rgba(96,165,250,0.55)); }
+  .zone-label{ font-family:'IBM Plex Mono', monospace; font-size:10px; fill:var(--text-dim); }
+  .zone-ratio{ font-family:'IBM Plex Mono', monospace; font-size:9.5px; font-weight:600; }
+
+  .truck-blip{ filter:drop-shadow(0 0 5px rgba(255,201,51,0.9)); }
+
+  .sweep{
+    position:absolute; inset:0; pointer-events:none;
+    background:conic-gradient(from 0deg, rgba(34,211,238,0.18), transparent 26%, transparent 100%);
+    animation:sweep 5s linear infinite;
+    mix-blend-mode:screen;
+  }
+  @keyframes sweep{ to{ transform:rotate(360deg); } }
+  @media (prefers-reduced-motion:reduce){ .sweep{ animation:none; } .truck-blip, .pulse-dot{ animation:none !important; } }
+
+  .map-legend{
+    display:flex; gap:16px; margin-top:12px; flex-wrap:wrap;
+    font-family:'IBM Plex Mono', monospace; font-size:11px; color:var(--text-dim);
+  }
+  .map-legend span{ display:inline-flex; align-items:center; gap:6px; }
+  .swatch{ width:9px; height:9px; border-radius:2px; display:inline-block; }
+
+  /* ============ ALERT / RETICLE CARD ============ */
+  .alert-card{
+    border:1px solid var(--signal-dim);
+    background:linear-gradient(180deg, rgba(255,201,51,0.06), transparent 60%), var(--panel-2);
+    position:relative;
+  }
+  .corner{ position:absolute; width:14px; height:14px; border:2px solid var(--signal); opacity:0.85; }
+  .corner.tl{ top:8px; left:8px; border-right:none; border-bottom:none; }
+  .corner.tr{ top:8px; right:8px; border-left:none; border-bottom:none; }
+  .corner.bl{ bottom:8px; left:8px; border-right:none; border-top:none; }
+  .corner.br{ bottom:8px; right:8px; border-left:none; border-top:none; }
+
+  .alert-row{ display:flex; justify-content:space-between; align-items:baseline; margin-top:10px; }
+  .alert-label{ font-size:12px; color:var(--text-dim); }
+  .alert-value{ font-family:'IBM Plex Mono', monospace; font-size:14.5px; color:var(--text); }
+  .alert-value.hero{ font-size:22px; color:var(--signal); font-weight:600; }
+  .alert-gain{ color:var(--gain); }
+  .alert-cta{
+    margin-top:14px; width:100%; padding:11px; border-radius:5px; border:1px solid var(--signal);
+    background:rgba(255,201,51,0.1); color:var(--signal); font-family:'IBM Plex Mono', monospace;
+    font-size:12.5px; letter-spacing:0.06em; text-transform:uppercase; cursor:pointer;
+  }
+  .alert-cta:hover{ background:rgba(255,201,51,0.18); }
+
+  /* ============ LOAD FEED ============ */
+  .feed-list{ display:flex; flex-direction:column; gap:8px; max-height:210px; overflow:hidden; }
+  .feed-item{
+    display:grid; grid-template-columns:1fr auto; gap:4px 10px;
+    padding:9px 10px; background:var(--panel-2); border:1px solid var(--line); border-radius:5px;
+    animation:feedIn 0.4s ease;
+  }
+  @keyframes feedIn{ from{ opacity:0; transform:translateY(-6px);} to{ opacity:1; transform:translateY(0);} }
+  .feed-route{ font-size:12.5px; color:var(--text); }
+  .feed-rate{ font-family:'IBM Plex Mono', monospace; font-size:12.5px; color:var(--cyan); text-align:right; }
+  .feed-meta{ grid-column:1/-1; font-family:'IBM Plex Mono', monospace; font-size:10.5px; color:var(--text-dim); }
+
+  /* ============ LOOP PANEL ============ */
+  .loop-mini-svg{ width:100%; height:auto; }
+  .loop-progress{ display:flex; gap:5px; margin-top:10px; }
+  .loop-progress > div{ flex:1; height:4px; border-radius:2px; background:var(--line); }
+  .loop-progress > div.done{ background:var(--gain); }
+  .loop-progress > div.active{ background:var(--signal); }
+
+  /* ============ CONSOLE LOG ============ */
+  .console{
+    margin-top:16px; background:#070A0E; border:1px solid var(--line); border-radius:8px;
+    padding:12px 16px; height:132px; overflow:hidden; position:relative;
+  }
+  .console-title{ font-family:'IBM Plex Mono', monospace; font-size:10.5px; color:var(--text-dim); letter-spacing:0.1em; margin-bottom:8px; }
+  .log-line{
+    font-family:'IBM Plex Mono', monospace; font-size:12px; color:var(--text-dim);
+    padding:2px 0; animation:feedIn 0.35s ease; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .log-line .ts{ color:#4B5563; margin-right:8px; }
+  .log-line.gain{ color:var(--gain); }
+  .log-line.warn{ color:var(--signal); }
+  .log-line.crit{ color:var(--zone-hot); }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- ============ TOP BAR ============ -->
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark">A</div>
+      <div>
+        <div class="brand-title hud">Apex Deadhead Command</div>
+        <div class="brand-sub mono">Live fleet &amp; market telemetry</div>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <div class="status-pill"><span class="pulse-dot"></span> LIVE FEED</div>
+      <div class="clock"><strong id="clockTime" class="mono">--:--:--</strong><span id="clockDate" class="mono">--</span></div>
+    </div>
+  </div>
+
+  <!-- ============ KPI ROW ============ -->
+  <div class="kpi-row" id="kpiRow">
+    <div class="kpi">
+      <div class="kpi-label">Trucks Tracked</div>
+      <div class="kpi-value mono" id="kpiTrucks">128</div>
+      <div class="kpi-delta pos mono">▲ 3 since 08:00</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Loads Ingested Today</div>
+      <div class="kpi-value mono" id="kpiLoads">1,942</div>
+      <div class="kpi-delta pos mono" id="kpiLoadsDelta">▲ live</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Avg Load/Truck Ratio</div>
+      <div class="kpi-value mono up" id="kpiRatio">2.34</div>
+      <div class="kpi-delta mono">Fleet-wide, van</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Deadhead Miles Avoided</div>
+      <div class="kpi-value mono warn" id="kpiMiles">4,860</div>
+      <div class="kpi-delta pos mono">Today, all trucks</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Revenue Protected</div>
+      <div class="kpi-value mono up" id="kpiRevenue">$18,240</div>
+      <div class="kpi-delta pos mono">vs. no relocation</div>
+    </div>
+  </div>
+
+  <!-- ============ MAIN GRID ============ -->
+  <div class="main-grid">
+
+    <!-- MAP PANEL -->
+    <div class="panel">
+      <div class="panel-head">
+        <div class="panel-title hud">Load-to-Truck Heat Map</div>
+        <div class="panel-tag">SECTOR SCAN · VAN</div>
+      </div>
+      <div class="map-wrap">
+        <svg class="map-svg" viewBox="0 0 1000 560" id="mapSvg">
+          <defs>
+            <pattern id="gridPattern" width="40" height="40" patternUnits="userSpaceOnUse">
+              <path d="M40 0H0V40" class="grid-line" fill="none"/>
+            </pattern>
+          </defs>
+          <rect width="1000" height="560" fill="url(#gridPattern)"/>
+
+          <!-- route vector: relocation suggestion -->
+          <line x1="738" y1="356" x2="695" y2="299" stroke="#FFC933" stroke-width="2" stroke-dasharray="5 5" opacity="0.85"/>
+          <!-- triangulation loop preview -->
+          <polygon points="679,166 509,378 738,356" fill="none" stroke="#22D3EE" stroke-width="1.2" stroke-dasharray="3 4" opacity="0.5"/>
+
+          <!-- Zone nodes: [cx,cy,r,color,class,label,ratio] -->
+          <g id="zoneNodes"></g>
+          <!-- Truck blips -->
+          <g id="truckBlips"></g>
+        </svg>
+        <div class="sweep"></div>
+      </div>
+      <div class="map-legend">
+        <span><i class="swatch" style="background:#E53935"></i>Hot &gt;4.0</span>
+        <span><i class="swatch" style="background:#FB923C"></i>Balanced 2.0–4.0</span>
+        <span><i class="swatch" style="background:#60A5FA"></i>Soft 1.0–2.0</span>
+        <span><i class="swatch" style="background:#4B5563"></i>Dead &lt;1.0</span>
+        <span><i class="swatch" style="background:#FFC933"></i>Recommended move</span>
+      </div>
+
+      <!-- CONSOLE LOG -->
+      <div class="console">
+        <div class="console-title">SYSTEM ACTIVITY LOG</div>
+        <div id="logContainer"></div>
+      </div>
+    </div>
+
+    <!-- SIDE STACK -->
+    <div style="display:flex; flex-direction:column; gap:16px;">
+
+      <!-- RELOCATION ALERT -->
+      <div class="panel alert-card">
+        <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+        <div class="panel-head">
+          <div class="panel-title hud" style="color:var(--signal);">Relocation Alert</div>
+          <div class="panel-tag" style="color:var(--gain); border-color:rgba(52,211,153,0.4);">RECOMMENDED</div>
+        </div>
+        <div style="font-size:13px; color:var(--text-dim);">Truck #482 · delivered Atlanta, GA</div>
+        <div class="alert-row"><span class="alert-label">Relocate to</span><span class="alert-value hero">Chattanooga, TN</span></div>
+        <div class="alert-row"><span class="alert-label">Deadhead distance</span><span class="alert-value">90 mi</span></div>
+        <div class="alert-row"><span class="alert-label">Market ratio</span><span class="alert-value" style="color:#E53935;">4.6 — Hot</span></div>
+        <div class="alert-row"><span class="alert-label">Avg outbound RPM</span><span class="alert-value">$2.55/mi</span></div>
+        <div class="alert-row"><span class="alert-label">Net gain vs. staying</span><span class="alert-value alert-gain">+$310</span></div>
+        <button class="alert-cta">Call broker: (423) 555-0142</button>
+      </div>
+
+      <!-- LIVE LOAD FEED -->
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-title hud">Live Load Feed</div>
+          <div class="panel-tag">DAT · STREAMING</div>
+        </div>
+        <div class="feed-list" id="feedList"></div>
+      </div>
+
+      <!-- TRIANGULATION LOOP -->
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-title hud">Active Triangulation Loop</div>
+          <div class="panel-tag">TRUCK #217</div>
+        </div>
+        <svg class="loop-mini-svg" viewBox="0 0 300 170">
+          <polygon points="150,20 260,140 40,140" fill="none" stroke="#22D3EE" stroke-width="1.5" opacity="0.6"/>
+          <circle cx="150" cy="20" r="5" fill="#FFC933"/>
+          <circle cx="260" cy="140" r="5" fill="#FFC933"/>
+          <circle cx="40" cy="140" r="5" fill="#FFC933"/>
+          <text x="150" y="12" text-anchor="middle" class="zone-label mono" fill="#E6EBF1">CHI</text>
+          <text x="272" y="140" text-anchor="start" class="zone-label mono" fill="#E6EBF1">DAL</text>
+          <text x="28" y="140" text-anchor="end" class="zone-label mono" fill="#E6EBF1">ATL</text>
+        </svg>
+        <div class="loop-progress">
+          <div class="done"></div><div class="active"></div><div></div>
+        </div>
+        <div style="margin-top:8px; font-size:11.5px; color:var(--text-dim);">Leg 2 of 3 — Dallas → Atlanta in progress</div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  /* ---------- Clock ---------- */
+  function tickClock(){
+    const now = new Date();
+    document.getElementById('clockTime').textContent = now.toLocaleTimeString('en-US', { hour12:false });
+    document.getElementById('clockDate').textContent = now.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' });
+  }
+  tickClock(); setInterval(tickClock, 1000);
+
+  /* ---------- Zone nodes (approx US layout, x/y normalized to 1000x560 viewBox) ---------- */
+  const zones = [
+    {x:679,y:166,r:16,cls:'hot',label:'CHICAGO',ratio:4.3},
+    {x:509,y:378,r:15,cls:'hot',label:'DALLAS',ratio:4.1},
+    {x:738,y:356,r:14,cls:'bal',label:'ATLANTA',ratio:2.4},
+    {x:695,y:299,r:13,cls:'hot',label:'CHATTANOOGA',ratio:4.6},
+    {x:635,y:323,r:13,cls:'bal',label:'MEMPHIS',ratio:2.6},
+    {x:123,y:349,r:15,cls:'bal',label:'LOS ANGELES',ratio:2.55},
+    {x:64,y:243,r:12,cls:'soft',label:'SACRAMENTO',ratio:1.4},
+    {x:49,y:33,r:11,cls:'soft',label:'SEATTLE',ratio:1.8},
+    {x:927,y:193,r:12,cls:'dead',label:'NEW YORK',ratio:0.6},
+    {x:918,y:200,r:10,cls:'dead',label:'NEW JERSEY',ratio:0.6},
+    {x:981,y:155,r:9,cls:'dead',label:'BOSTON',ratio:0.65},
+    {x:364,y:216,r:12,cls:'bal',label:'DENVER',ratio:2.0},
+    {x:539,y:449,r:12,cls:'bal',label:'HOUSTON',ratio:2.35},
+    {x:235,y:362,r:10,cls:'soft',label:'PHOENIX',ratio:1.9},
+    {x:804,y:321,r:10,cls:'bal',label:'CHARLOTTE',ratio:2.15},
+    {x:815,y:542,r:9,cls:'soft',label:'MIAMI',ratio:1.6},
+    {x:555,y:231,r:10,cls:'bal',label:'KANSAS CITY',ratio:2.2},
+  ];
+  const zoneColor = { hot:'#E53935', bal:'#FB923C', soft:'#60A5FA', dead:'#4B5563' };
+  const zoneGlow  = { hot:'zone-glow-hot', bal:'zone-glow-bal', soft:'zone-glow-soft', dead:'' };
+
+  const zoneGroup = document.getElementById('zoneNodes');
+  zones.forEach(z => {
+    const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+    g.setAttribute('class','zone-node ' + zoneGlow[z.cls]);
+
+    const pulse = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    pulse.setAttribute('cx', z.x); pulse.setAttribute('cy', z.y); pulse.setAttribute('r', z.r);
+    pulse.setAttribute('fill', zoneColor[z.cls]); pulse.setAttribute('opacity', z.cls === 'hot' ? '0.25' : '0.15');
+    if (z.cls === 'hot') {
+      const anim = document.createElementNS('http://www.w3.org/2000/svg','animate');
+      anim.setAttribute('attributeName','r');
+      anim.setAttribute('values', `${z.r};${z.r*1.7};${z.r}`);
+      anim.setAttribute('dur','2.2s'); anim.setAttribute('repeatCount','indefinite');
+      pulse.appendChild(anim);
+      const animOp = document.createElementNS('http://www.w3.org/2000/svg','animate');
+      animOp.setAttribute('attributeName','opacity');
+      animOp.setAttribute('values','0.3;0.02;0.3');
+      animOp.setAttribute('dur','2.2s'); animOp.setAttribute('repeatCount','indefinite');
+      pulse.appendChild(animOp);
+    }
+    g.appendChild(pulse);
+
+    const core = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    core.setAttribute('cx', z.x); core.setAttribute('cy', z.y); core.setAttribute('r', Math.max(4, z.r*0.32));
+    core.setAttribute('fill', zoneColor[z.cls]);
+    g.appendChild(core);
+
+    const label = document.createElementNS('http://www.w3.org/2000/svg','text');
+    label.setAttribute('x', z.x); label.setAttribute('y', z.y - z.r - 6);
+    label.setAttribute('text-anchor','middle'); label.setAttribute('class','zone-label');
+    label.textContent = z.label;
+    g.appendChild(label);
+
+    const ratioText = document.createElementNS('http://www.w3.org/2000/svg','text');
+    ratioText.setAttribute('x', z.x); ratioText.setAttribute('y', z.y + z.r + 13);
+    ratioText.setAttribute('text-anchor','middle'); ratioText.setAttribute('class','zone-ratio');
+    ratioText.setAttribute('fill', zoneColor[z.cls]);
+    ratioText.textContent = z.ratio.toFixed(1) + 'x';
+    g.appendChild(ratioText);
+
+    zoneGroup.appendChild(g);
+  });
+
+  /* ---------- Truck blips (simple back-and-forth motion between two points) ---------- */
+  const truckPaths = [
+    {from:[679,166], to:[509,378]},
+    {from:[509,378], to:[738,356]},
+    {from:[123,349], to:[364,216]},
+    {from:[927,193], to:[804,321]},
+  ];
+  const blipGroup = document.getElementById('truckBlips');
+  const blipEls = truckPaths.map(p => {
+    const el = document.createElementNS('http://www.w3.org/2000/svg','circle');
+    el.setAttribute('r','5'); el.setAttribute('fill','#FFC933'); el.setAttribute('class','truck-blip');
+    blipGroup.appendChild(el);
+    return { el, t: Math.random(), dir: 1, speed: 0.0022 + Math.random()*0.0012, ...p };
+  });
+  function animateBlips(){
+    blipEls.forEach(b => {
+      b.t += b.dir * b.speed;
+      if (b.t >= 1) { b.t = 1; b.dir = -1; }
+      if (b.t <= 0) { b.t = 0; b.dir = 1; }
+      const x = b.from[0] + (b.to[0]-b.from[0]) * b.t;
+      const y = b.from[1] + (b.to[1]-b.from[1]) * b.t;
+      b.el.setAttribute('cx', x); b.el.setAttribute('cy', y);
+    });
+    requestAnimationFrame(animateBlips);
+  }
+  animateBlips();
+
+  /* ---------- KPI live nudge ---------- */
+  let loadsTotal = 1942, milesTotal = 4860, revenueTotal = 18240;
+  setInterval(() => {
+    loadsTotal += Math.floor(Math.random()*4)+1;
+    milesTotal += Math.floor(Math.random()*30)+5;
+    revenueTotal += Math.floor(Math.random()*90)+20;
+    document.getElementById('kpiLoads').textContent = loadsTotal.toLocaleString();
+    document.getElementById('kpiMiles').textContent = milesTotal.toLocaleString();
+    document.getElementById('kpiRevenue').textContent = '$' + revenueTotal.toLocaleString();
+    const ratio = (2.2 + Math.random()*0.3).toFixed(2);
+    document.getElementById('kpiRatio').textContent = ratio;
+  }, 2600);
+
+  /* ---------- Live load feed ---------- */
+  const lanes = [
+    ['Chicago, IL','Dallas, TX','$2.42/mi','Van'],
+    ['Atlanta, GA','Chattanooga, TN','$2.60/mi','Reefer'],
+    ['Memphis, TN','Nashville, TN','$2.15/mi','Van'],
+    ['Los Angeles, CA','Phoenix, AZ','$2.05/mi','Flatbed'],
+    ['Kansas City, MO','St. Louis, MO','$2.20/mi','Van'],
+    ['Dallas, TX','Houston, TX','$2.10/mi','Van'],
+    ['Denver, CO','Salt Lake City, UT','$1.95/mi','Reefer'],
+    ['Charlotte, NC','Richmond, VA','$2.05/mi','Van'],
+  ];
+  const feedList = document.getElementById('feedList');
+  function pushFeedItem(){
+    const [o,d,rate,eq] = lanes[Math.floor(Math.random()*lanes.length)];
+    const item = document.createElement('div');
+    item.className = 'feed-item';
+    item.innerHTML = `<div class="feed-route">${o} → ${d}</div><div class="feed-rate">${rate}</div>
+                       <div class="feed-meta">${eq} · posted ${Math.floor(Math.random()*4)+1} min ago</div>`;
+    feedList.prepend(item);
+    while (feedList.children.length > 5) feedList.removeChild(feedList.lastChild);
+  }
+  pushFeedItem(); pushFeedItem(); pushFeedItem();
+  setInterval(pushFeedItem, 3200);
+
+  /* ---------- Console log ---------- */
+  const logMessages = [
+    {t:'gain', m:'Truck #482 relocated ATL → Chattanooga · net gain +$310'},
+    {t:'warn', m:'Hot zone detected: Chattanooga, TN · ratio 4.6x'},
+    {t:'crit', m:'Dead zone warning: New Jersey · ratio 0.6x, 12 trucks idle'},
+    {t:'',     m:'KMA refresh complete · 45 markets updated'},
+    {t:'gain', m:'Truck #217 completed leg 2 of 3 · Dallas → Atlanta'},
+    {t:'',     m:'New load ingested: Memphis, TN → Nashville, TN · $2.15/mi'},
+    {t:'warn', m:'Ratio shift: Sacramento, CA now 1.4x, trending softer'},
+    {t:'gain', m:'Truck #364 booked outbound load · Chicago · $2.42/mi'},
+  ];
+  const logContainer = document.getElementById('logContainer');
+  function pushLog(){
+    const entry = logMessages[Math.floor(Math.random()*logMessages.length)];
+    const now = new Date();
+    const ts = now.toLocaleTimeString('en-US', { hour12:false });
+    const line = document.createElement('div');
+    line.className = 'log-line ' + entry.t;
+    line.innerHTML = `<span class="ts">${ts}</span>${entry.m}`;
+    logContainer.prepend(line);
+    while (logContainer.children.length > 6) logContainer.removeChild(logContainer.lastChild);
+  }
+  pushLog(); pushLog(); pushLog();
+  setInterval(pushLog, 2400);
+</script>
+</body>
+</html>

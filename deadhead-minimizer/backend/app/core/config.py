@@ -33,10 +33,18 @@ class Settings(BaseSettings):
     MAX_DEADHEAD_RADIUS_MILES: float = 300.0
     RATE_NEGOTIATION_MIN_MARGIN_PCT: float = 5.0  # floor margin below asking RPM the AI won't cross
 
-    # Comma-separated in the actual env var, e.g. "https://app.vercel.app,http://localhost:3000"
-    CORS_ORIGINS: list[str] = ["http://localhost:3000"]
+    # Comma-separated in the actual env var, e.g. "https://ddm-frontend.onrender.com,http://localhost:3000"
+    # Kept as a plain string (not list[str]) — pydantic-settings tries to JSON-decode
+    # env vars typed as complex types like lists before any validator runs, and a
+    # plain comma-separated string like "http://localhost:3000" isn't valid JSON,
+    # which crashes startup. Splitting it ourselves via the property below avoids that.
+    CORS_ORIGINS: str = "http://localhost:3000"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
 
     @field_validator("DATABASE_URL", mode="before")
     @classmethod
@@ -53,13 +61,10 @@ class Settings(BaseSettings):
             return v.replace("postgresql://", "postgresql+asyncpg://", 1)
         return v
 
-    @field_validator("CORS_ORIGINS", mode="before")
-    @classmethod
-    def split_cors_origins(cls, v):
-        """Accept a plain comma-separated string from the env, not just a JSON list."""
-        if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",") if origin.strip()]
-        return v
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
 
 
 @lru_cache

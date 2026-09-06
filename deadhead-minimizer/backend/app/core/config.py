@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     # which crashes startup. Splitting it ourselves via the property below avoids that.
     CORS_ORIGINS: str = "http://localhost:3000"
 
+    # One-time setup endpoint protection (see app/api/v1/admin.py). Set this to a
+    # random string in Render's dashboard before calling /admin/bootstrap-db, then
+    # consider rotating/clearing it afterward since it can run arbitrary schema SQL.
+    ADMIN_BOOTSTRAP_SECRET: str = ""
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     @property
@@ -60,11 +65,6 @@ class Settings(BaseSettings):
         if v.startswith("postgresql://") and "+asyncpg" not in v:
             return v.replace("postgresql://", "postgresql+asyncpg://", 1)
         return v
-
-
-@lru_cache
-def get_settings() -> Settings:
-    return Settings()
 
 
 @lru_cache

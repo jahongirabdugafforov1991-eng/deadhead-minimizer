@@ -82,6 +82,19 @@ async def manual_update_markets(
         ratio = round(update.load_count / update.truck_count, 2) if update.truck_count > 0 else 99.99
         zone = KmaHeatmap.classify(ratio).value
 
+        # Fetch the current zone before overwriting it, so we can detect a real
+        # shift (e.g. balanced -> hot) and log it as an activity event below.
+        prior = await db.execute(
+            text(
+                "SELECT zone_classification, kma_name FROM kma_heatmaps "
+                "WHERE kma_code = :kma_code AND equipment_type = :equipment_type"
+            ),
+            {"kma_code": update.kma_code, "equipment_type": update.equipment_type.value},
+        )
+        prior_row = prior.mappings().first()
+        prior_zone = prior_row["zone_classification"] if prior_row else None
+        kma_name = prior_row["kma_name"] if prior_row else update.kma_code
+
         stmt = text(
             """
             UPDATE kma_heatmaps
@@ -128,6 +141,19 @@ async def manual_update_markets(
                 updated=True,
             )
         )
+
+        # Log an activity event when the zone genuinely changed — this is what
+        # feeds the dashboard's live activity log, no manual step required.
+        if prior_zone is not None and prior_zone != zone:
+            event_type = "dead_zone_warning" if zone == "dead" else "zone_shift"
+            message = f"Ratio shift: {kma_name} now {ratio:.2f}x ({zone}, was {prior_zone})"
+            await db.execute(
+                text(
+                    "INSERT INTO system_events (event_type, message, kma_code) "
+                    "VALUES (:event_type, :message, :kma_code)"
+                ),
+                {"event_type": event_type, "message": message, "kma_code": update.kma_code},
+            )
 
     await db.commit()
     return results

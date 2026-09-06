@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import MarketMap from "@/components/map/MarketMap";
 import MapLegend from "@/components/map/MapLegend";
 import WeatherWidget from "@/components/WeatherWidget";
-import TelegramFeed from "@/components/TelegramFeed";
 import { MarketPoint } from "@/types/market";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -165,7 +164,6 @@ export default function DashboardPage() {
         </div>
 
         <WeatherWidget location={destination} />
-        <TelegramFeed />
         </div>
       </div>
     </main>

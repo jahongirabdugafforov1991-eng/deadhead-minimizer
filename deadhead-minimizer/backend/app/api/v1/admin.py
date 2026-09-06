@@ -31,7 +31,7 @@ from scripts.seed_kma_data import EQUIPMENT_FOR_SEED, SEED_KMAS, UPSERT_SQL, cla
 router = APIRouter(prefix="/admin", tags=["admin"])
 settings = get_settings()
 
-MIGRATION_SQL_PATH = Path(__file__).resolve().parents[3] / "migrations" / "001_initial_schema.sql"
+MIGRATIONS_DIR = Path(__file__).resolve().parents[3] / "migrations"
 
 
 def _asyncpg_dsn(database_url: str) -> str:
@@ -40,24 +40,34 @@ def _asyncpg_dsn(database_url: str) -> str:
     return database_url.replace("postgresql+asyncpg://", "postgresql://", 1)
 
 
-async def _run_migration() -> None:
-    if not MIGRATION_SQL_PATH.exists():
+async def _run_migrations() -> list[str]:
+    """
+    Runs every .sql file in migrations/, in filename order (001_..., 002_..., etc).
+    Safe to call repeatedly — each migration is written with IF NOT EXISTS /
+    exception-guarded CREATE TYPE, so re-running an already-applied one is a
+    no-op rather than an error. This means adding a new numbered migration file
+    to the repo is all that's needed — the next bootstrap-db call picks it up.
+    """
+    if not MIGRATIONS_DIR.exists():
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Migration file not found at {MIGRATION_SQL_PATH}",
+            detail=f"Migrations directory not found at {MIGRATIONS_DIR}",
         )
-    sql = MIGRATION_SQL_PATH.read_text()
 
-    # Run via a raw asyncpg connection (not the SQLAlchemy engine) — asyncpg's
-    # execute() can run a whole multi-statement script (including the DO $$ ... $$
-    # blocks in the migration) in one call using Postgres's simple query protocol.
-    # SQLAlchemy's async execute() only supports one statement per call, which
-    # would require fragile manual splitting on ';' and break on those DO blocks.
+    applied: list[str] = []
     conn = await asyncpg.connect(dsn=_asyncpg_dsn(settings.DATABASE_URL))
     try:
-        await conn.execute(sql)
+        for sql_file in sorted(MIGRATIONS_DIR.glob("*.sql")):
+            sql = sql_file.read_text()
+            # Simple query protocol runs the whole multi-statement file (including
+            # DO $$ ... $$ blocks) in one call — see note in the old single-file
+            # version of this function for why SQLAlchemy's execute() can't do this.
+            await conn.execute(sql)
+            applied.append(sql_file.name)
     finally:
         await conn.close()
+
+    return applied
 
 
 async def _run_seed() -> int:
@@ -90,11 +100,11 @@ async def bootstrap_db(secret: str = Query(..., description="Must match ADMIN_BO
     if not settings.ADMIN_BOOTSTRAP_SECRET or secret != settings.ADMIN_BOOTSTRAP_SECRET:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid or missing secret")
 
-    await _run_migration()
+    applied_migrations = await _run_migrations()
     seeded_count = await _run_seed()
 
     return {
-        "migration": "applied",
+        "migrations_applied": applied_migrations,
         "seeded_markets": seeded_count,
         "equipment_type": EQUIPMENT_FOR_SEED.value,
     }

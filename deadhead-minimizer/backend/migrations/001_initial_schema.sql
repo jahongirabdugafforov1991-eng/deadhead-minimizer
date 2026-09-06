@@ -54,6 +54,11 @@ CREATE INDEX IF NOT EXISTS idx_kma_geom_gist ON kma_heatmaps USING GIST (geom);
 CREATE INDEX IF NOT EXISTS idx_kma_code ON kma_heatmaps (kma_code);
 CREATE INDEX IF NOT EXISTS idx_kma_zone_class ON kma_heatmaps (zone_classification);
 
+-- kma_code columns on loads/trucks below are intentionally plain VARCHAR, not
+-- foreign keys — kma_heatmaps is keyed on (kma_code, equipment_type) together
+-- since the same city has a separate row per equipment type, so a single-column
+-- FK on kma_code alone isn't valid. Join on kma_code when you need the link.
+
 -- ---------------------------------------------------------------------
 -- TABLE: loads
 -- DAT load board postings (or extension-bridge scraped equivalents).
@@ -66,13 +71,13 @@ CREATE TABLE IF NOT EXISTS loads (
     origin_state        VARCHAR(2) NOT NULL,
     origin_zip3         VARCHAR(3) NOT NULL,
     origin_geom         GEOGRAPHY(Point, 4326) NOT NULL,
-    origin_kma_code     VARCHAR(10) REFERENCES kma_heatmaps (kma_code),
+    origin_kma_code     VARCHAR(10),
 
     dest_city           VARCHAR(80) NOT NULL,
     dest_state          VARCHAR(2) NOT NULL,
     dest_zip3           VARCHAR(3) NOT NULL,
     dest_geom           GEOGRAPHY(Point, 4326) NOT NULL,
-    dest_kma_code       VARCHAR(10) REFERENCES kma_heatmaps (kma_code),
+    dest_kma_code       VARCHAR(10),
 
     equipment_type      equipment_type_enum NOT NULL,
     miles               NUMERIC(7, 1) NOT NULL,
@@ -115,7 +120,7 @@ CREATE TABLE IF NOT EXISTS trucks (
     current_geom            GEOGRAPHY(Point, 4326) NOT NULL,
     current_city             VARCHAR(80),
     current_state             VARCHAR(2),
-    current_kma_code           VARCHAR(10) REFERENCES kma_heatmaps (kma_code),
+    current_kma_code           VARCHAR(10),
 
     status                      truck_status_enum NOT NULL DEFAULT 'available',
     target_destination_city      VARCHAR(80),
@@ -153,3 +158,4 @@ CREATE TRIGGER trg_trucks_updated_at BEFORE UPDATE ON trucks
 DROP TRIGGER IF EXISTS trg_kma_updated_at ON kma_heatmaps;
 CREATE TRIGGER trg_kma_updated_at BEFORE UPDATE ON kma_heatmaps
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+

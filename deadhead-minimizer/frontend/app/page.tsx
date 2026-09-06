@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 import MarketMap from "@/components/map/MarketMap";
+import MapLegend from "@/components/map/MapLegend";
+import WeatherWidget from "@/components/WeatherWidget";
+import TelegramFeed from "@/components/TelegramFeed";
 import { MarketPoint } from "@/types/market";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -98,14 +101,18 @@ export default function DashboardPage() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-5">
-        <div className="h-[560px] rounded-lg border border-slate-800 overflow-hidden">
+        <div className="h-[560px] rounded-lg border border-slate-800 overflow-hidden relative">
           {loadingMarkets ? (
             <div className="h-full flex items-center justify-center text-slate-500 text-sm">Loading markets…</div>
           ) : (
-            <MarketMap markets={markets} />
+            <>
+              <MarketMap markets={markets} />
+              <MapLegend />
+            </>
           )}
         </div>
 
+        <div className="flex flex-col gap-5">
         <div className="rounded-lg border border-slate-800 bg-slate-900 p-5">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-300 mb-4">
             Deadhead lookup
@@ -155,6 +162,10 @@ export default function DashboardPage() {
               </div>
             ))}
           </div>
+        </div>
+
+        <WeatherWidget location={destination} />
+        <TelegramFeed />
         </div>
       </div>
     </main>

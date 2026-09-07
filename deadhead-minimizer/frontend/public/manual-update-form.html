@@ -197,13 +197,17 @@
     tbody.querySelectorAll('tr').forEach(tr => {
       const code = tr.querySelector('.kma-code').value.trim().toUpperCase();
       const equipment_type = tr.querySelector('.equip-select').value;
-      const load_count = parseInt(tr.querySelector('.load-count').value, 10);
-      const truck_count = parseInt(tr.querySelector('.truck-count').value, 10);
+      const loadRaw = tr.querySelector('.load-count').value.trim();
+      const truckRaw = tr.querySelector('.truck-count').value.trim();
       const rpmVal = tr.querySelector('.rpm-input').value;
       const avg_outbound_rpm = rpmVal ? parseFloat(rpmVal) : null;
 
-      if (!code) return; // skip empty rows
-      if (isNaN(load_count) || isNaN(truck_count)) { hasError = true; return; }
+      if (!code) return; // skip rows with no market code at all
+      if (loadRaw === '' && truckRaw === '') return; // untouched row — nothing typed, just skip it
+
+      const load_count = parseInt(loadRaw, 10);
+      const truck_count = parseInt(truckRaw, 10);
+      if (isNaN(load_count) || isNaN(truck_count)) { hasError = true; return; } // partially filled or invalid — this one's a real error
 
       updates.push({ kma_code: code, equipment_type, load_count, truck_count, avg_outbound_rpm });
     });

@@ -4,11 +4,14 @@ import { useEffect, useState } from "react";
 import MarketMap from "@/components/map/MarketMap";
 import MapLegend from "@/components/map/MapLegend";
 import WeatherWidget from "@/components/WeatherWidget";
+import KpiStrip from "@/components/KpiStrip";
+import ActivityLog from "@/components/ActivityLog";
 import { MarketPoint } from "@/types/market";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 interface RelocationOption {
+  kma_code: string;
   kma_name: string;
   deadhead_miles: number;
   load_to_truck_ratio: number;
@@ -78,6 +81,25 @@ export default function DashboardPage() {
     }
   }
 
+  async function acceptRelocation(opt: RelocationOption) {
+    try {
+      await fetch(`${API_URL}/api/v1/events/accept-relocation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          truck_label: "Dispatcher pick",
+          kma_code: opt.kma_code,
+          kma_name: opt.kma_name,
+          deadhead_miles: opt.deadhead_miles,
+          net_gain_usd: opt.net_rpm_arbitrage,
+        }),
+      });
+    } catch {
+      // If this fails silently, the KPI/log just won't reflect it — not worth
+      // blocking the dispatcher's flow over a logging call.
+    }
+  }
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 p-6">
       <header className="flex items-center justify-between mb-5">
@@ -98,6 +120,8 @@ export default function DashboardPage() {
           Could not load market data: {fetchError}. Check NEXT_PUBLIC_API_URL and that the backend is awake.
         </div>
       )}
+
+      <KpiStrip />
 
       <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-5">
         <div className="h-[560px] rounded-lg border border-slate-800 overflow-hidden relative">
@@ -158,12 +182,19 @@ export default function DashboardPage() {
                   {opt.avg_outbound_rpm ? ` · $${opt.avg_outbound_rpm.toFixed(2)}/mi` : ""}
                   {opt.net_rpm_arbitrage !== null ? ` · net ${opt.net_rpm_arbitrage >= 0 ? "+" : ""}${opt.net_rpm_arbitrage}` : ""}
                 </div>
+                <button
+                  onClick={() => acceptRelocation(opt)}
+                  className="mt-2 w-full py-1.5 rounded-md bg-emerald-600/20 border border-emerald-600 text-emerald-400 text-xs font-medium hover:bg-emerald-600/30"
+                >
+                  Accept this relocation
+                </button>
               </div>
             ))}
           </div>
         </div>
 
         <WeatherWidget location={destination} />
+        <ActivityLog />
         </div>
       </div>
     </main>

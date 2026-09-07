@@ -6,6 +6,7 @@ import MapLegend from "@/components/map/MapLegend";
 import WeatherWidget from "@/components/WeatherWidget";
 import KpiStrip from "@/components/KpiStrip";
 import ActivityLog from "@/components/ActivityLog";
+import MarketUpdateModal from "@/components/MarketUpdateModal";
 import { MarketPoint } from "@/types/market";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -25,6 +26,7 @@ export default function DashboardPage() {
   const [markets, setMarkets] = useState<MarketPoint[]>([]);
   const [loadingMarkets, setLoadingMarkets] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [showUpdateModal, setShowUpdateModal] = useState(false);
 
   const [destination, setDestination] = useState("Atlanta, GA");
   const [currentRpm, setCurrentRpm] = useState("2.20");
@@ -108,7 +110,11 @@ export default function DashboardPage() {
           <p className="text-sm text-slate-400">Live from {API_URL}</p>
         </div>
         <a
-          href="/manual-update-form.html"
+          href="#"
+          onClick={(e) => {
+            e.preventDefault();
+            setShowUpdateModal(true);
+          }}
           className="text-sm px-4 py-2 rounded-md border border-amber-500 text-amber-400 hover:bg-amber-500/10"
         >
           Update market data
@@ -197,6 +203,14 @@ export default function DashboardPage() {
         <ActivityLog />
         </div>
       </div>
+
+      {showUpdateModal && (
+        <MarketUpdateModal
+          markets={markets}
+          onClose={() => setShowUpdateModal(false)}
+          onSaved={loadMarkets}
+        />
+      )}
     </main>
   );
 }
